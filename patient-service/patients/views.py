@@ -1,8 +1,9 @@
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.utils import timezone
 from datetime import datetime, timedelta
+import logging
 from .services import DatabaseService
 from .serializers import (
     PatientSerializer, AppointmentSerializer, 
@@ -10,7 +11,6 @@ from .serializers import (
     PatientDashboardSerializer, LanguageSerializer,
     ChatSessionSerializer, ChatMessageSerializer
 )
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -509,7 +509,6 @@ class ChatViewSet(viewsets.ViewSet):
 
         if session_id:
             session = DatabaseService.get_chat_session_by_id_and_patient(session_id, patient["id"])
-            logger.info(f"Loaded session {session_id} for patient {patient['id']} {session}")
             if not session:
                 return Response({"error": "Invalid session ID"}, status=400)
         else:
@@ -522,7 +521,7 @@ class ChatViewSet(viewsets.ViewSet):
         messages = DatabaseService.get_messages_for_session(session["id"])
         chat_history = [{"role": "system", "content": (
             "You are a helpful assistant for a patient dashboard following NCCN guidelines. "
-            f"Reply in {preferred_language}."
+            f"Reply in patients preferred language {preferred_language}."
         )}]
         for msg in messages:
             chat_history.append({"role": msg.role, "content": msg.content})
@@ -547,24 +546,24 @@ class ChatViewSet(viewsets.ViewSet):
 
         # Cancer type + auth for RAG
         try:
-            cancer_type = self._get_cancer_type(patient)
+            main_cancer_type, sub_cancer_type = self._get_cancer_type(patient)
         except Exception:
-            cancer_type = self.rag_service.FALLBACK_CANCER_TYPE  # 'uterine'
+            main_cancer_type, sub_cancer_type = self.rag_service.FALLBACK_CANCER_TYPE  # 'uterine'
 
         auth_token = (request.META.get("HTTP_AUTHORIZATION", "") or "").replace("Bearer ", "")
         if not auth_token:
             return Response({"error": "Authentication required"}, status=401)
 
-        # Call RAG (LangChain) service
+        #Call RAG (LangChain) service
         try:
             result = self.rag_service.query_with_context(
                 query=user_message,
-                cancer_type=cancer_type,
+                language=patient.get("preferred_language_code", "en"),
+                cancer_type=main_cancer_type,
                 auth_token=auth_token,
                 session_id=session["id"],
                 chat_history=chat_history,
             )
-            logger.info(f"RAG service returned: type={type(result)}, value={result}")
         except Exception as e:
             logger.exception("Exception calling RAG service")
             return Response({"error": "Failed to generate response", "details": str(e)}, status=500)
@@ -613,18 +612,22 @@ class ChatViewSet(viewsets.ViewSet):
     def context(self, request):
         """Get the current cancer type context for the patient"""
         try:
-            patient = self._get_patient_info(request)
+            patient = self.get_patient(request)
             if not patient:
                 return Response(
                     {'error': 'Patient profile not found'}, 
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            cancer_type = self._get_cancer_type(patient)
+            main_cancer_type, sub_cancer_type = self._get_cancer_type(patient)
+            
+            preferred_language = patient.get('preferred_language', 'English')
             
             return Response({
-                'cancer_type': cancer_type,
-                'is_fallback': cancer_type == 'uterine' and not self._patient_has_uterine_cancer(patient)
+                'language': preferred_language,
+                'main_cancer_type': main_cancer_type,
+                'sub_cancer_type': sub_cancer_type,
+                'is_fallback': main_cancer_type == 'Not Assigned' 
             })
             
         except Exception as e:
@@ -637,16 +640,22 @@ class ChatViewSet(viewsets.ViewSet):
     def _get_cancer_type(self, patient: dict) -> str:
         """Extract cancer type from patient data with fallback"""
         # Try to get cancer type from patient profile
-        cancer_type = patient.get('cancer_type', '').strip()
+        assignment = patient.get('assignment')
+        sub_cancer_type = assignment['cancer_subtype_name']
+        main_cancer_type = assignment['cancer_type_name']
         
-        if not cancer_type:
+        
+        if not sub_cancer_type or not main_cancer_type:
             # Try to get from cancer_type_detail
             cancer_detail = patient.get('cancer_type_detail', {})
-            if isinstance(cancer_detail, dict):
-                cancer_type = cancer_detail.get('name', '').strip()
+            sub_cancer_type = cancer_detail.get('name', '').strip()
+            main_cancer_type = cancer_detail.get('name', '').strip()
         
-        # Default to uterine if not found or empty
-        if not cancer_type:
-            logger.info(f"No cancer type found for patient {patient.get('id')}, using fallback")
-            cancer_type = 'uterine'
+        if not sub_cancer_type or not main_cancer_type:
+            # Default to uterine if not found or empty
+            sub_cancer_type = 'Not Assigned'
+            main_cancer_type = 'Not Assigned'
+        
+
+        return main_cancer_type, sub_cancer_type
     

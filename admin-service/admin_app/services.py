@@ -30,6 +30,11 @@ class DatabaseService:
                 timeout=30
             )
             response.raise_for_status()
+
+            # Handle empty responses (like 204 No Content for DELETE operations)
+            if response.status_code == 204 or not response.content:
+                return None
+
             return response.json()
         except requests.exceptions.RequestException as e:
             logger.error(f"Database service request failed: {str(e)}")

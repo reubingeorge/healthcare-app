@@ -287,7 +287,7 @@ function createMobileRow(desktopRow) {
         </div>
         <div class="flex space-x-3 text-sm">
             <a href="/admin/cancer-types/${id}/edit" class="text-blue-600 hover:text-blue-900">Edit</a>
-            <form method="POST" action="/admin/cancer-types/${id}/delete" class="inline" onsubmit="return confirm('Are you sure you want to delete this cancer type?');">
+            <form method="POST" action="/admin/cancer-types/${id}/delete/" class="inline" onsubmit="return confirm('Are you sure you want to delete this cancer type?');">
                 <input type="hidden" name="csrfmiddlewaretoken" value="${getCSRFToken()}">
                 <button type="submit" class="text-red-600 hover:text-red-900">Delete</button>
             </form>

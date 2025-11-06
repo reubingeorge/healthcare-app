@@ -29,7 +29,7 @@ Instructions:
 - Use clear, easy-to-understand language
 - If specific medical terms are used, briefly explain them
 - If the context doesn't contain enough information to fully answer the question, acknowledge this
-- Always answer in {language}
+- Always answer in {language} if the response is in another language reject and retry immediately
 
 Answer:""",
     input_variables=["context", "question", "language"]
@@ -126,6 +126,7 @@ class RAGChain:
         """Process a query with optional chat history"""
         # Add chat history context if available
         prompt = self.prompt_template.partial(language=language)
+
         self.qa_chain = self._create_chain(prompt)
         full_query = self._build_query_with_history(question, chat_history, language)
         
@@ -209,7 +210,7 @@ class RAGChain:
                 sources.append(f"{filename} ({pages_str})")
             else:
                 sources.append(filename)
-        
+
         return {
             'success': True,
             'answer': answer,

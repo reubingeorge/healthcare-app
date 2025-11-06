@@ -52,6 +52,7 @@ class PatientSerializer(serializers.ModelSerializer):
                     'id': assignment.id,
                     'cancer_subtype': assignment.cancer_subtype.id if assignment.cancer_subtype else None,
                     'cancer_subtype_name': assignment.cancer_subtype.cancer_type if assignment.cancer_subtype else None,
+                    'cancer_type_id': assignment.cancer_subtype.parent.id if (assignment.cancer_subtype and assignment.cancer_subtype.parent) else None,
                     'cancer_type_name': assignment.cancer_subtype.parent.cancer_type if (assignment.cancer_subtype and assignment.cancer_subtype.parent) else None,
                     'assigned_clinician': assignment.assigned_clinician.id if assignment.assigned_clinician else None,
                     'notes': assignment.notes,

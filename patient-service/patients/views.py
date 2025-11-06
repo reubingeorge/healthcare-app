@@ -545,11 +545,15 @@ class ChatViewSet(viewsets.ViewSet):
 
         DatabaseService.create_chat_message(session["id"], "user", user_message)
 
-        # Cancer type + auth for RAG
+        # Get parent cancer type ID for RAG filtering
+        # RAG documents are tagged with parent cancer types, not subtypes
+        cancer_type_id = None
         try:
-            main_cancer_type, sub_cancer_type = self._get_cancer_type(patient)
-        except Exception:
-            main_cancer_type, sub_cancer_type = self.rag_service.FALLBACK_CANCER_TYPE  # 'uterine'
+            assignment = patient.get('assignment')
+            if assignment:
+                cancer_type_id = assignment.get('cancer_type_id')  # This is the parent cancer type ID
+        except Exception as e:
+            logger.warning(f"Failed to get cancer type ID from patient assignment: {e}")
 
         auth_token = (request.META.get("HTTP_AUTHORIZATION", "") or "").replace("Bearer ", "")
         if not auth_token:
@@ -559,7 +563,7 @@ class ChatViewSet(viewsets.ViewSet):
             result = self.rag_service.query_with_context(
                 query=user_message,
                 language=patient.get("preferred_language_id", "en"),
-                cancer_type=main_cancer_type,
+                cancer_type_id=cancer_type_id,
                 auth_token=auth_token,
                 session_id=session["id"],
                 chat_history=chat_history,
@@ -615,48 +619,34 @@ class ChatViewSet(viewsets.ViewSet):
             patient = self.get_patient(request)
             if not patient:
                 return Response(
-                    {'error': 'Patient profile not found'}, 
+                    {'error': 'Patient profile not found'},
                     status=status.HTTP_404_NOT_FOUND
                 )
-            
-            main_cancer_type, sub_cancer_type = self._get_cancer_type(patient)
-            
+
             preferred_language = patient.get('preferred_language', 'English')
 
-            
+            # Get cancer type info from assignment
+            assignment = patient.get('assignment')
+            if assignment:
+                main_cancer_type = assignment.get('cancer_type_name', 'Not Assigned')
+                sub_cancer_type = assignment.get('cancer_subtype_name', 'Not Assigned')
+                cancer_type_id = assignment.get('cancer_type_id')
+            else:
+                main_cancer_type = 'Not Assigned'
+                sub_cancer_type = 'Not Assigned'
+                cancer_type_id = None
+
             return Response({
                 'language': preferred_language,
                 'main_cancer_type': main_cancer_type,
                 'sub_cancer_type': sub_cancer_type,
-                'is_fallback': main_cancer_type == 'Not Assigned' 
+                'cancer_type_id': cancer_type_id,
+                'is_fallback': main_cancer_type == 'Not Assigned'
             })
-            
+
         except Exception as e:
             logger.error(f"Error getting context: {str(e)}")
             return Response(
-                {'error': 'Unable to determine context'}, 
+                {'error': 'Unable to determine context'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-    def _get_cancer_type(self, patient: dict) -> str:
-        """Extract cancer type from patient data with fallback"""
-        # Try to get cancer type from patient profile
-        assignment = patient.get('assignment')
-        sub_cancer_type = assignment['cancer_subtype_name']
-        main_cancer_type = assignment['cancer_type_name']
-        
-        
-        if not sub_cancer_type or not main_cancer_type:
-            # Try to get from cancer_type_detail
-            cancer_detail = patient.get('cancer_type_detail', {})
-            sub_cancer_type = cancer_detail.get('name', '').strip()
-            main_cancer_type = cancer_detail.get('name', '').strip()
-        
-        if not sub_cancer_type or not main_cancer_type:
-            # Default to uterine if not found or empty
-            sub_cancer_type = 'Not Assigned'
-            main_cancer_type = 'Not Assigned'
-        
-
-        return main_cancer_type, sub_cancer_type
-    

@@ -209,74 +209,92 @@ class PatientViewSet(viewsets.ModelViewSet):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ClinicianViewSet(viewsets.ModelViewSet):
-    queryset = Clinician.objects.select_related('user', 'specialization').all()
+    queryset = Clinician.objects.select_related('user').prefetch_related('specializations').all()
     serializer_class = ClinicianSerializer
     
     def create(self, request, *args, **kwargs):
         """Create a new clinician profile"""
         user_id = request.data.get('user_id')
-        specialization_id = request.data.get('specialization_id')
+        specialization_ids = request.data.get('specializations', [])  # List of IDs
         phone_number = request.data.get('phone_number', '')
-        
+
         if not user_id:
             return Response(
-                {'error': 'user_id is required'}, 
+                {'error': 'user_id is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         try:
             # Get user
             user = User.objects.get(id=user_id)
-            
-            # Get specialization if provided
-            specialization = None
-            if specialization_id:
-                specialization = CancerType.objects.get(id=specialization_id, parent__isnull=True)
-            
+
             # Create clinician
             clinician = Clinician.objects.create(
                 user=user,
-                specialization=specialization,
                 phone_number=phone_number,
                 is_available=True
             )
-            
+
+            # Add specializations if provided
+            if specialization_ids:
+                specializations = CancerType.objects.filter(id__in=specialization_ids, parent__isnull=True)
+                clinician.specializations.set(specializations)
+
             serializer = self.get_serializer(clinician)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-            
+
         except User.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-        except CancerType.DoesNotExist:
-            return Response({'error': 'Invalid specialization'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Partially update clinician (including specializations)"""
+        clinician = self.get_object()
+
+        # Update phone number if provided
+        if 'phone_number' in request.data:
+            clinician.phone_number = request.data['phone_number']
+
+        # Update specializations if provided
+        if 'specializations' in request.data:
+            specialization_ids = request.data['specializations']
+            if specialization_ids:
+                specializations = CancerType.objects.filter(id__in=specialization_ids, parent__isnull=True)
+                clinician.specializations.set(specializations)
+            else:
+                clinician.specializations.clear()
+
+        clinician.save()
+        serializer = self.get_serializer(clinician)
+        return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def by_user(self, request):
         user_id = request.query_params.get('user_id')
         if not user_id:
             return Response({'error': 'user_id parameter required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         try:
-            clinician = Clinician.objects.select_related('user', 'specialization').get(user__id=user_id)
+            clinician = Clinician.objects.select_related('user').prefetch_related('specializations').get(user__id=user_id)
             serializer = self.get_serializer(clinician)
             return Response(serializer.data)
         except Clinician.DoesNotExist:
             return Response({'error': 'Clinician not found'}, status=status.HTTP_404_NOT_FOUND)
-    
+
     @action(detail=False, methods=['get'])
     def available(self, request):
         clinicians = self.queryset.filter(is_available=True)
         serializer = self.get_serializer(clinicians, many=True)
         return Response(serializer.data)
-    
+
     @action(detail=False, methods=['get'])
     def by_specialization(self, request):
         specialization_id = request.query_params.get('specialization_id')
         if not specialization_id:
             return Response({'error': 'specialization_id parameter required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        clinicians = self.queryset.filter(specialization__id=specialization_id)
+
+        clinicians = self.queryset.filter(specializations__id=specialization_id)
         serializer = self.get_serializer(clinicians, many=True)
         return Response(serializer.data)
 

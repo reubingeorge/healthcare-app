@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Role, Patient, Clinician, EventLog, CancerType, FileMetadata, RAGDocument, Language, RAGEmbedding, RAGEmbeddingJob, PatientAssignment, MedicalRecordType, MedicalRecord, MedicalRecordAccess, ChatMessage, ChatSession
+from .models import User, Role, Patient, Clinician, ClinicianSpecialization, EventLog, CancerType, FileMetadata, RAGDocument, Language, RAGEmbedding, RAGEmbeddingJob, PatientAssignment, MedicalRecordType, MedicalRecord, MedicalRecordAccess, ChatMessage, ChatSession
 from .models import SuggestionTemplate, SuggestedHistory
 
 class LanguageSerializer(serializers.ModelSerializer):
@@ -64,21 +64,25 @@ class PatientSerializer(serializers.ModelSerializer):
 
 class ClinicianSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    specialization_detail = serializers.SerializerMethodField()
-    
+    specialization_details = serializers.SerializerMethodField()
+    specialization_ids = serializers.SerializerMethodField()
+
     class Meta:
         model = Clinician
         fields = '__all__'
         read_only_fields = ['created_at', 'updated_at']
-    
-    def get_specialization_detail(self, obj):
-        if obj.specialization:
-            return {
-                'id': obj.specialization.id,
-                'cancer_type': obj.specialization.cancer_type,
-                'description': obj.specialization.description
-            }
-        return None
+
+    def get_specialization_details(self, obj):
+        """Return all specializations"""
+        return [{
+            'id': spec.id,
+            'cancer_type': spec.cancer_type,
+            'description': spec.description
+        } for spec in obj.specializations.all()]
+
+    def get_specialization_ids(self, obj):
+        """Return list of specialization IDs"""
+        return list(obj.specializations.values_list('id', flat=True))
 
 class CancerTypeSerializer(serializers.ModelSerializer):
     subtypes = serializers.SerializerMethodField()
@@ -197,10 +201,11 @@ class PatientAssignmentSerializer(serializers.ModelSerializer):
     
     def get_assigned_clinician_detail(self, obj):
         if obj.assigned_clinician:
+            specializations = list(obj.assigned_clinician.specializations.values_list('cancer_type', flat=True))
             return {
                 'id': obj.assigned_clinician.id,
                 'name': f"Dr. {obj.assigned_clinician.user.first_name} {obj.assigned_clinician.user.last_name}",
-                'specialization': obj.assigned_clinician.specialization.cancer_type if obj.assigned_clinician.specialization else None
+                'specializations': specializations
             }
         return None
     

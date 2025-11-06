@@ -90,11 +90,9 @@ class Patient(models.Model):
 class Clinician(models.Model):
     id = models.BigAutoField(primary_key=True)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='clinician_profile')
-    specialization = models.ForeignKey(
-        'CancerType', 
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
+    specializations = models.ManyToManyField(
+        'CancerType',
+        through='ClinicianSpecialization',
         limit_choices_to={'parent__isnull': True},  # Only parent cancer types
         related_name='clinicians'
     )
@@ -102,13 +100,15 @@ class Clinician(models.Model):
     is_available = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         db_table = 'clinicians'
-    
+
     def __str__(self):
-        specialization_name = self.specialization.cancer_type if self.specialization else "No specialization"
-        return f"Dr. {self.user.first_name} {self.user.last_name} - {specialization_name}"
+        specialization_names = ', '.join([s.cancer_type for s in self.specializations.all()[:3]])
+        if not specialization_names:
+            specialization_names = "No specialization"
+        return f"Dr. {self.user.first_name} {self.user.last_name} - {specialization_names}"
 
 class CancerType(models.Model):
     cancer_type = models.CharField(max_length=200)
@@ -134,6 +134,30 @@ class CancerType(models.Model):
         if self.parent:
             return f"{self.parent.cancer_type} - {self.cancer_type}"
         return self.cancer_type
+
+class ClinicianSpecialization(models.Model):
+    """Junction table for many-to-many relationship between Clinician and CancerType"""
+    id = models.BigAutoField(primary_key=True)
+    clinician = models.ForeignKey(Clinician, on_delete=models.CASCADE, related_name='clinician_specializations')
+    cancer_type = models.ForeignKey(
+        CancerType,
+        on_delete=models.PROTECT,
+        limit_choices_to={'parent__isnull': True},  # Only parent cancer types
+        related_name='specialization_clinicians'
+    )
+    is_primary = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'clinician_specializations'
+        unique_together = [['clinician', 'cancer_type']]
+        indexes = [
+            models.Index(fields=['clinician']),
+            models.Index(fields=['cancer_type']),
+        ]
+
+    def __str__(self):
+        return f"{self.clinician.user.first_name} {self.clinician.user.last_name} - {self.cancer_type.cancer_type}"
 
 class MedicalRecordType(models.Model):
     """

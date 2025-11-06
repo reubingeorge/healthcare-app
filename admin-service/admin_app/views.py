@@ -419,26 +419,26 @@ def update_clinician_info(request, clinician_id):
     """Update clinician information"""
     try:
         data = {}
-        
+
         # Get phone number if provided
         phone = request.POST.get('phone_number')
         if phone is not None:
             data['phone_number'] = phone
-        
-        # Get specialization if provided
-        specialization = request.POST.get('specialization_id')
-        if specialization:
-            data['specialization'] = int(specialization) if specialization else None
-        
+
+        # Get multiple specializations
+        specialization_ids = request.POST.getlist('specialization_ids')  # Use getlist for multiple values
+        if specialization_ids:
+            data['specializations'] = [int(sid) for sid in specialization_ids if sid]
+
         # Update clinician info via database service
         if data:
             DatabaseService.update_clinician(clinician_id, data)
             messages.success(request, "Clinician information updated successfully")
-        
+
     except Exception as e:
         logger.error(f"Clinician update error: {str(e)}")
         messages.error(request, f"Error updating clinician information: {str(e)}")
-    
+
     # Redirect back to user detail page
     referrer = request.META.get('HTTP_REFERER')
     if referrer and '/users/' in referrer:
@@ -447,7 +447,7 @@ def update_clinician_info(request, clinician_id):
             return redirect('user_detail', user_id=user_id)
         except:
             pass
-    
+
     return redirect('users_list')
 
 # Patient Assignment Management

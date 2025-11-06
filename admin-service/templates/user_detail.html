@@ -195,8 +195,8 @@
                                 {% for clinician in available_clinicians %}
                                 <option value="{{ clinician.id }}" {% if assignment_data and assignment_data.assigned_clinician == clinician.id %}selected{% endif %}>
                                     Dr. {{ clinician.user.first_name }} {{ clinician.user.last_name }}
-                                    {% if clinician.specialization_detail %}
-                                    - {{ clinician.specialization_detail.cancer_type }} Specialist
+                                    {% if clinician.specialization_details %}
+                                    - {% for spec in clinician.specialization_details %}{{ spec.cancer_type }}{% if not forloop.last %}, {% endif %}{% endfor %}
                                     {% endif %}
                                 </option>
                                 {% endfor %}
@@ -246,17 +246,79 @@
                                placeholder="Enter phone number">
                     </div>
                     
-                    <div>
-                        <label class="block text-sm font-medium text-gray-500">Specialization</label>
-                        <select name="specialization_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                            <option value="">Select Specialization</option>
-                            {% for cancer_type in cancer_types %}
-                            <option value="{{ cancer_type.id }}" {% if clinician_data.specialization == cancer_type.id %}selected{% endif %}>
-                                {{ cancer_type.cancer_type }}
-                            </option>
-                            {% endfor %}
-                        </select>
+                    <div class="relative">
+                        <label class="block text-sm font-medium text-gray-500 mb-1">Specializations</label>
+                        <div class="relative">
+                            <button type="button" id="specialization-dropdown-btn"
+                                    class="w-full bg-white border border-gray-300 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-pointer focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                                <span id="specialization-display" class="block truncate text-gray-700">Select specializations...</span>
+                                <span class="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                    <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                    </svg>
+                                </span>
+                            </button>
+
+                            <div id="specialization-dropdown" class="hidden absolute z-10 mt-1 w-full bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+                                {% for cancer_type in cancer_types %}
+                                <label class="flex items-center px-3 py-2 hover:bg-gray-100 cursor-pointer">
+                                    <input type="checkbox" name="specialization_ids" value="{{ cancer_type.id }}"
+                                           class="specialization-checkbox h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                           {% if cancer_type.id in clinician_data.specialization_ids %}checked{% endif %}>
+                                    <span class="ml-2 text-gray-900">{{ cancer_type.cancer_type }}</span>
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <p class="mt-1 text-xs text-gray-500">Click to select multiple specializations</p>
                     </div>
+
+                    <script>
+                        (function() {
+                            const btn = document.getElementById('specialization-dropdown-btn');
+                            const dropdown = document.getElementById('specialization-dropdown');
+                            const display = document.getElementById('specialization-display');
+                            const checkboxes = document.querySelectorAll('.specialization-checkbox');
+
+                            // Toggle dropdown
+                            btn.addEventListener('click', function(e) {
+                                e.stopPropagation();
+                                dropdown.classList.toggle('hidden');
+                            });
+
+                            // Close dropdown when clicking outside
+                            document.addEventListener('click', function(e) {
+                                if (!btn.contains(e.target) && !dropdown.contains(e.target)) {
+                                    dropdown.classList.add('hidden');
+                                }
+                            });
+
+                            // Update display when checkboxes change
+                            function updateDisplay() {
+                                const selected = Array.from(checkboxes)
+                                    .filter(cb => cb.checked)
+                                    .map(cb => cb.nextElementSibling.textContent.trim());
+
+                                if (selected.length === 0) {
+                                    display.textContent = 'Select specializations...';
+                                    display.classList.add('text-gray-400');
+                                } else if (selected.length === 1) {
+                                    display.textContent = selected[0];
+                                    display.classList.remove('text-gray-400');
+                                } else {
+                                    display.textContent = selected.length + ' specializations selected';
+                                    display.classList.remove('text-gray-400');
+                                }
+                            }
+
+                            checkboxes.forEach(cb => {
+                                cb.addEventListener('change', updateDisplay);
+                            });
+
+                            // Initialize display
+                            updateDisplay();
+                        })();
+                    </script>
                     
                     <div>
                         <label class="block text-sm font-medium text-gray-500">License Number</label>

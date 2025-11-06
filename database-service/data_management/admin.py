@@ -20,18 +20,21 @@ class PatientAdmin(admin.ModelAdmin):
 
 @admin.register(Clinician)
 class ClinicianAdmin(admin.ModelAdmin):
-    list_display = ('get_full_name', 'get_specialization', 'phone_number', 'is_available', 'created_at')
-    list_filter = ('specialization', 'is_available')
+    list_display = ('get_full_name', 'get_specializations', 'phone_number', 'is_available', 'created_at')
+    list_filter = ('is_available',)
     search_fields = ('user__email', 'user__first_name', 'user__last_name', 'phone_number')
     readonly_fields = ('created_at', 'updated_at')
-    
+
     def get_full_name(self, obj):
         return f"Dr. {obj.user.first_name} {obj.user.last_name}"
     get_full_name.short_description = 'Name'
-    
-    def get_specialization(self, obj):
-        return obj.specialization.cancer_type if obj.specialization else 'Not specified'
-    get_specialization.short_description = 'Specialization'
+
+    def get_specializations(self, obj):
+        specializations = obj.specializations.all()
+        if specializations:
+            return ', '.join([s.cancer_type for s in specializations])
+        return 'Not specified'
+    get_specializations.short_description = 'Specializations'
 
 @admin.register(CancerType)
 class CancerTypeAdmin(admin.ModelAdmin):

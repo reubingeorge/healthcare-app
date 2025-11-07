@@ -116,5 +116,11 @@
   </div>
 </div>
 
-<script src="{% static 'js/chat-bot.js' %}?v={{ current_timestamp }}"></script>
+<!-- Chat Bot Module Scripts - Load in dependency order -->
+<script src="{% static 'js/chat-bot-auth.js' %}?v={{ current_timestamp }}"></script>
+<script src="{% static 'js/chat-bot-translation.js' %}?v={{ current_timestamp }}"></script>
+<script src="{% static 'js/chat-bot-ui.js' %}?v={{ current_timestamp }}"></script>
+<script src="{% static 'js/chat-bot-messages.js' %}?v={{ current_timestamp }}"></script>
+<script src="{% static 'js/chat-bot-sessions.js' %}?v={{ current_timestamp }}"></script>
+<script src="{% static 'js/chat-bot-init.js' %}?v={{ current_timestamp }}"></script>
 {% endblock %}

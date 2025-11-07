@@ -39,6 +39,16 @@ window.updateAuthHeaders = function(newToken) {
     }
 };
 
+// Check for 401/403 errors and redirect to login
+function checkAuthError(response) {
+    if (response.status === 401 || response.status === 403) {
+        console.warn('Token expired or unauthorized - redirecting to login');
+        window.location.href = '/login/?expired=true';
+        return true;
+    }
+    return false;
+}
+
 // API URLs
 const TRANSLATE_URL = "/api/translate/";
 const RESULT_URL = "/api/result";
@@ -61,6 +71,7 @@ async function translateText(text, targetLang, token, {timeoutMs=10000, pollEver
     body: JSON.stringify({ text, target_language: targetLang })
   });
 
+  if (checkAuthError(res)) return text;
   // Cache hit (200)
   if (res.status === 200) {
     const data = await res.json();
@@ -80,6 +91,7 @@ async function translateText(text, targetLang, token, {timeoutMs=10000, pollEver
         headers: {"Authorization": `Bearer ${token}`}
       });
 
+      if (checkAuthError(r2)) return text;
       if (r2.status === 200) {
         const body = await r2.json();
         if (body.status === "completed") return body.result ?? text;
@@ -177,6 +189,7 @@ async function loadSessions(skipAutoSelect = false) {
     const res = await fetch("/api/patients/chat/sessions/", {
         headers: { Authorization: "Bearer " + getToken() }
     });
+    if (checkAuthError(res)) return;
     const sessions = await res.json();
     // Only auto-select first session if no session is active and we're not skipping
     if (!sessionId && sessions.length > 0 && !skipAutoSelect) {
@@ -190,10 +203,11 @@ async function loadSessions(skipAutoSelect = false) {
 }
 
 async function deleteSession(id) {
-    await fetch(`/api/patients/chat/${id}/delete/`, {
+    const res = await fetch(`/api/patients/chat/${id}/delete/`, {
         method: 'DELETE',
         headers: { Authorization: "Bearer " + getToken() }
     });
+    if (checkAuthError(res)) return;
 }
 
 async function loadSession(id) {
@@ -211,6 +225,7 @@ async function loadSession(id) {
         body: JSON.stringify({ session_id: id })
     });
 
+    if (checkAuthError(res)) return;
     if (res.ok) {
         sessionId = id;
         const data = await res.json();
@@ -240,6 +255,7 @@ async function loadChatContext() {
             }
         });
 
+        if (checkAuthError(response)) return;
         if (response.ok) {
             const data = await response.json();
             preferredLanguage = data.language;
@@ -374,6 +390,7 @@ async function sendMessage(message) {
             },
             body: JSON.stringify(send)
         });
+        if (checkAuthError(res)) return;
         const data = await res.json();
 
         // Quickly cycle through all status updates (50ms each) to show what happened
@@ -402,6 +419,7 @@ async function sendMessage(message) {
             cancer_type: mainCancerType
             })
           });
+          if (checkAuthError(sres)) return;
           const sdata = await sres.json();
           const suggestions = (sdata.top_4 || []).slice(0, 4);
           const localized = await translateArray(suggestions, preferredLanguage, getToken());
@@ -544,6 +562,14 @@ function setupEventListeners() {
  * Initialize on DOM Load
  */
 document.addEventListener("DOMContentLoaded", async () => {
+    // Validate token exists before initializing
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        console.error('No access token found - redirecting to login');
+        window.location.href = '/login/?next=/patient/chat/';
+        return;
+    }
+
     // Initialize
     await loadSessions();
     await loadChatContext();

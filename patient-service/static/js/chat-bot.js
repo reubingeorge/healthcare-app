@@ -19,13 +19,25 @@ const toggleBtn = document.getElementById("sidebar-toggle");
 
 // State variables
 const initialMessage = "Hello! I'm your medical assistant. I can help answer questions about your condition based on medical documents. How can I help you today?"
-let token = localStorage.getItem('access_token');
 let sessionId = null;
 let activeButton = null;
 let mainCancerType = null;
 let subCancerType = null;
 let preferredLanguage = null;
 let preferredInitialMessage = null;
+
+// Token management - always get the latest token from localStorage
+function getToken() {
+    return localStorage.getItem('access_token');
+}
+
+// Handle token refresh from token-refresh.js
+window.updateAuthHeaders = function(newToken) {
+    if (newToken) {
+        localStorage.setItem('access_token', newToken);
+        console.log('Chat: Access token updated');
+    }
+};
 
 // API URLs
 const TRANSLATE_URL = "/api/translate/";
@@ -149,7 +161,7 @@ function renderSessionButton(session) {
         loadSessions();
         chatBox.innerHTML = ''
         sessionId = null
-        translateText(initialMessage, preferredLanguage, token).then(translated => {
+        translateText(initialMessage, preferredLanguage, getToken()).then(translated => {
             preferredInitialMessage = translated;
             appendMessage("assistant", translated);
         });
@@ -163,7 +175,7 @@ function renderSessionButton(session) {
 
 async function loadSessions(skipAutoSelect = false) {
     const res = await fetch("/api/patients/chat/sessions/", {
-        headers: { Authorization: "Bearer " + token }
+        headers: { Authorization: "Bearer " + getToken() }
     });
     const sessions = await res.json();
     // Only auto-select first session if no session is active and we're not skipping
@@ -180,7 +192,7 @@ async function loadSessions(skipAutoSelect = false) {
 async function deleteSession(id) {
     await fetch(`/api/patients/chat/${id}/delete/`, {
         method: 'DELETE',
-        headers: { Authorization: "Bearer " + token }
+        headers: { Authorization: "Bearer " + getToken() }
     });
 }
 
@@ -194,7 +206,7 @@ async function loadSession(id) {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + token
+            "Authorization": "Bearer " + getToken()
         },
         body: JSON.stringify({ session_id: id })
     });
@@ -208,7 +220,7 @@ async function loadSession(id) {
         for (const msg of data.messages) {
             bubble = appendMessage(msg.role, msg.content);
         }
-      const localized = await translateArray(data.suggestions, preferredLanguage, token);
+      const localized = await translateArray(data.suggestions, preferredLanguage, getToken());
 
       renderSuggestionsUnderGroup(bubble, localized);
     } else {
@@ -221,10 +233,9 @@ async function loadSession(id) {
  */
 async function loadChatContext() {
     try {
-        const token = localStorage.getItem('access_token');
         const response = await fetch('/api/patients/chat/context/', {
             headers: {
-                'Authorization': 'Bearer ' + token,
+                'Authorization': 'Bearer ' + getToken(),
                 'Content-Type': 'application/json'
             }
         });
@@ -359,7 +370,7 @@ async function sendMessage(message) {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": "Bearer " + token
+                "Authorization": "Bearer " + getToken()
             },
             body: JSON.stringify(send)
         });
@@ -384,7 +395,7 @@ async function sendMessage(message) {
             method: "POST",
             headers: {
             "Content-Type": "application/json",
-            "Authorization": "Bearer " + token
+            "Authorization": "Bearer " + getToken()
             },
             body: JSON.stringify({
             session_id: sessionId,
@@ -393,7 +404,7 @@ async function sendMessage(message) {
           });
           const sdata = await sres.json();
           const suggestions = (sdata.top_4 || []).slice(0, 4);
-          const localized = await translateArray(suggestions, preferredLanguage, token);
+          const localized = await translateArray(suggestions, preferredLanguage, getToken());
 
           renderSuggestionsUnderGroup(bubbleEl, localized);
           scrollToBottom();
@@ -519,7 +530,7 @@ function setupEventListeners() {
     newChatButton.addEventListener("click", async () => {
         chatBox.innerHTML = ''
         sessionId = null
-        translateText(initialMessage, preferredLanguage, token).then(translated => {
+        translateText(initialMessage, preferredLanguage, getToken()).then(translated => {
             preferredInitialMessage = translated;
             appendMessage("assistant", translated);
         });
@@ -547,7 +558,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (sessionId){
         await loadSession(sessionId);
     } else {
-        translateText(initialMessage, preferredLanguage, token).then(translated => {
+        translateText(initialMessage, preferredLanguage, getToken()).then(translated => {
             preferredInitialMessage = translated;
             appendMessage("assistant", translated);
         });

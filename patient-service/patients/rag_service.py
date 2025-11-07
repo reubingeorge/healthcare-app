@@ -81,7 +81,7 @@ class RAGService:
             'cancer_type_id': cancer_type_id,  # Filter by patient's cancer type
             'session_id': session_id,
             'chat_history': chat_history or [],
-            'k': 8  # Get more results for better context
+            'k': 10  # Get more results for better context
         }
 
         # Try with patient's specific cancer type

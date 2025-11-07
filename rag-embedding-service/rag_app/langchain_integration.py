@@ -24,11 +24,12 @@ Context from medical documents:
 Patient Question: {question}
 
 Instructions:
-- If the context contains relevant information, provide a complete answer based on it
+- Provide a complete answer using all relevant information from the context
 - If the context mentions lists or multiple items, include all of them
 - Use clear, easy-to-understand language
 - If specific medical terms are used, briefly explain them
-- If the context doesn't contain enough information to fully answer the question, acknowledge this
+- Present the information confidently when it appears in the context
+- Only indicate information is unavailable if the context contains nothing related to the question
 - Always answer in {language} if the response is in another language reject and retry immediately
 
 Answer:""",
@@ -98,9 +99,9 @@ class CustomRetriever(BaseRetriever):
 class RAGChain:
     """Simplified RAG chain wrapper"""
     
-    def __init__(self, cancer_type_id: Optional[int] = None, 
+    def __init__(self, cancer_type_id: Optional[int] = None,
                  model_name: str = "gpt-3.5-turbo",
-                 k: int = 8):
+                 k: int = 10):
         self.llm = ChatOpenAI(
             model_name=model_name,
             temperature=0,
@@ -220,11 +221,11 @@ class RAGChain:
 
 
 def process_rag_query(query: str, cancer_type_id: Optional[int] = None,
-                     chat_history: List = None, k: int = 5, language: str = 'English') -> Dict[str, Any]:
+                     chat_history: List = None, k: int = 10, language: str = 'English') -> Dict[str, Any]:
     """Main entry point for processing RAG queries"""
     try:
         # Create and run chain
-        rag_chain = RAGChain(cancer_type_id=cancer_type_id, k=max(k, 5))
+        rag_chain = RAGChain(cancer_type_id=cancer_type_id, k=max(k, 8))
         
         result = rag_chain.query(query, chat_history, language)
         

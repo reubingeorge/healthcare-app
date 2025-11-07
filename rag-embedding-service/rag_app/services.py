@@ -175,7 +175,7 @@ class ChatService:
             language=language,
             cancer_type_id=cancer_type_id,
             chat_history=chat_history,
-            k=8  # Use more results for better context
+            k=10  # Use more results for better context
         )
         
         if not result['success']:

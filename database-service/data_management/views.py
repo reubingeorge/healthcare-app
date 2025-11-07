@@ -1123,12 +1123,59 @@ class MedicalRecordTypeViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = MedicalRecordType.objects.filter(is_active=True).order_by('type_name')
     serializer_class = MedicalRecordTypeSerializer
-    
+
     def list(self, request):
         """List all active medical record types"""
         types = self.get_queryset()
         serializer = self.get_serializer(types, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def match_type(self, request):
+        """
+        Fuzzy match report type names for disambiguation
+        Parameters:
+            - query: Report type query string (e.g., "pathology", "scan", "blood test")
+        Returns: List of matching report types with similarity scores
+        """
+        query = request.query_params.get('query', '').strip()
+        if not query:
+            return Response({'error': 'query parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Get all active types
+            all_types = self.get_queryset()
+
+            # Try exact match first
+            exact_match = all_types.filter(type_name__iexact=query).first()
+            if exact_match:
+                return Response({
+                    'exact_match': True,
+                    'matches': [self.get_serializer(exact_match).data]
+                })
+
+            # Try case-insensitive contains match
+            contains_matches = all_types.filter(type_name__icontains=query)
+            if contains_matches.exists():
+                serializer = self.get_serializer(contains_matches, many=True)
+                return Response({
+                    'exact_match': False,
+                    'matches': serializer.data,
+                    'message': f"Found {contains_matches.count()} type(s) matching '{query}'"
+                })
+
+            # No matches - return all types as suggestions
+            serializer = self.get_serializer(all_types[:10], many=True)  # Limit to 10 suggestions
+            return Response({
+                'exact_match': False,
+                'matches': [],
+                'message': f"No types found matching '{query}'",
+                'suggestions': serializer.data
+            })
+
+        except Exception as e:
+            logger.error(f"Error matching report type: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class MedicalRecordViewSet(viewsets.ModelViewSet):
@@ -1164,10 +1211,160 @@ class MedicalRecordViewSet(viewsets.ModelViewSet):
         patient_id = request.query_params.get('patient_id')
         if not patient_id:
             return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         records = self.get_queryset().filter(patient_id=patient_id)
         serializer = self.get_serializer(records, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def search_reports(self, request):
+        """
+        Enhanced search for medical reports with fuzzy matching
+        Parameters:
+            - patient_id: Required patient ID
+            - report_type: Optional report type name (supports fuzzy matching)
+            - date_from: Optional start date filter (YYYY-MM-DD)
+            - date_to: Optional end date filter (YYYY-MM-DD)
+            - limit: Optional result limit (default 50)
+        """
+        patient_id = request.query_params.get('patient_id')
+        if not patient_id:
+            return Response({'error': 'patient_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Start with patient's records
+            queryset = self.get_queryset().filter(patient_id=patient_id)
+
+            # Filter by report type (supports fuzzy matching)
+            report_type_name = request.query_params.get('report_type')
+            if report_type_name:
+                # Try exact match first
+                exact_match = MedicalRecordType.objects.filter(
+                    type_name__iexact=report_type_name,
+                    is_active=True
+                ).first()
+
+                if exact_match:
+                    queryset = queryset.filter(medical_record_type=exact_match)
+                else:
+                    # Try fuzzy match
+                    fuzzy_matches = MedicalRecordType.objects.filter(
+                        type_name__icontains=report_type_name,
+                        is_active=True
+                    )
+                    if fuzzy_matches.exists():
+                        queryset = queryset.filter(medical_record_type__in=fuzzy_matches)
+                    else:
+                        # No matches found
+                        return Response({
+                            'count': 0,
+                            'results': [],
+                            'message': f"No reports found matching type '{report_type_name}'"
+                        })
+
+            # Date range filtering
+            date_from = request.query_params.get('date_from')
+            date_to = request.query_params.get('date_to')
+
+            if date_from:
+                try:
+                    from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+                    queryset = queryset.filter(created_at__date__gte=from_date)
+                except ValueError:
+                    return Response({'error': 'Invalid date_from format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+
+            if date_to:
+                try:
+                    to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+                    queryset = queryset.filter(created_at__date__lte=to_date)
+                except ValueError:
+                    return Response({'error': 'Invalid date_to format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Apply limit
+            limit = int(request.query_params.get('limit', 50))
+            queryset = queryset[:limit]
+
+            # Serialize results
+            serializer = self.get_serializer(queryset, many=True)
+
+            return Response({
+                'count': queryset.count(),
+                'results': serializer.data
+            })
+
+        except Exception as e:
+            logger.error(f"Error searching medical records: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['get'])
+    def get_with_access_check(self, request, pk=None):
+        """
+        Get medical record with access control verification
+        Parameters:
+            - user_id: Required user ID to check access
+        Returns record if user has active access, error otherwise
+        """
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'error': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Get the medical record
+            record = self.get_object()
+
+            # Check if user has active access
+            now = timezone.now()
+            access = MedicalRecordAccess.objects.filter(
+                medical_record=record,
+                user_id=user_id,
+                revoked_at__isnull=True
+            ).filter(
+                Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+            ).first()
+
+            if not access:
+                # Check if user is the patient who owns the record
+                patient = Patient.objects.filter(
+                    id=record.patient_id,
+                    user_id=user_id
+                ).first()
+
+                if not patient:
+                    return Response({
+                        'error': 'Access denied',
+                        'message': 'You do not have permission to view this medical record'
+                    }, status=status.HTTP_403_FORBIDDEN)
+
+            # User has access, return the record with file info
+            serializer = self.get_serializer(record)
+            data = serializer.data
+
+            # Add file metadata
+            if record.file:
+                data['file_info'] = {
+                    'id': str(record.file.id),
+                    'filename': record.file.filename,
+                    'file_size': record.file.file_size,
+                    'mime_type': record.file.mime_type,
+                    'storage_path': record.file.storage_path,
+                    'uploaded_at': record.file.uploaded_at
+                }
+
+            # Log the access
+            FileAccessLog.objects.create(
+                file=record.file,
+                user_id=user_id,
+                access_type='view',
+                success=True
+            )
+
+            return Response(data)
+
+        except MedicalRecord.DoesNotExist:
+            return Response({'error': 'Medical record not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error retrieving medical record with access check: {e}")
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class MedicalRecordAccessViewSet(viewsets.ModelViewSet):

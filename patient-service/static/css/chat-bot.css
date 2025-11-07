@@ -1,0 +1,52 @@
+/* Chat Bot Page Styles */
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.message-group {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* Smooth scrollbar styling */
+#chat-box::-webkit-scrollbar {
+  width: 6px;
+}
+
+#chat-box::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#chat-box::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+#chat-box::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Gradient backgrounds - using app's blue color scheme */
+.chat-gradient-bg {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.assistant-gradient {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e5e7eb 100%);
+}
+
+.user-gradient {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}

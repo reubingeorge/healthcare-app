@@ -336,3 +336,79 @@ class DatabaseService:
             return DatabaseService.make_request("GET", "/api/embedding-chunks/embeddings/")
         except Exception as e:
             return []
+
+    # Enhanced Medical Record operations for agent
+    @staticmethod
+    def search_medical_reports(
+        patient_id: int,
+        report_type: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        limit: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Search for medical reports with fuzzy matching
+        Args:
+            patient_id: Patient ID to search for
+            report_type: Optional report type name (supports fuzzy matching)
+            date_from: Optional start date filter (YYYY-MM-DD)
+            date_to: Optional end date filter (YYYY-MM-DD)
+            limit: Maximum number of results (default 50)
+        Returns:
+            Dict with count and results
+        """
+        try:
+            params = {
+                'patient_id': patient_id,
+                'limit': limit
+            }
+            if report_type:
+                params['report_type'] = report_type
+            if date_from:
+                params['date_from'] = date_from
+            if date_to:
+                params['date_to'] = date_to
+
+            return DatabaseService.make_request('GET', '/api/medical-records/search_reports/', params=params)
+        except Exception as e:
+            logger.error(f"Failed to search medical reports: {e}")
+            return {'count': 0, 'results': [], 'error': str(e)}
+
+    @staticmethod
+    def get_medical_report_with_access(report_id: str, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get medical report with access control check
+        Args:
+            report_id: Medical record ID
+            user_id: User ID to check access for
+        Returns:
+            Report data if access granted, None otherwise
+        """
+        try:
+            return DatabaseService.make_request(
+                'GET',
+                f'/api/medical-records/{report_id}/get_with_access_check/',
+                params={'user_id': user_id}
+            )
+        except Exception as e:
+            logger.error(f"Failed to get medical report with access check: {e}")
+            return None
+
+    @staticmethod
+    def match_report_type(query: str) -> Dict[str, Any]:
+        """
+        Find matching report types using fuzzy matching
+        Args:
+            query: Report type query string
+        Returns:
+            Dict with exact_match flag and list of matches
+        """
+        try:
+            return DatabaseService.make_request(
+                'GET',
+                '/api/medical-record-types/match_type/',
+                params={'query': query}
+            )
+        except Exception as e:
+            logger.error(f"Failed to match report type: {e}")
+            return {'exact_match': False, 'matches': [], 'error': str(e)}

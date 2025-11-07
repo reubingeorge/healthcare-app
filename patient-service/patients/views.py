@@ -450,12 +450,15 @@ class LanguageViewSet(viewsets.ViewSet):
 
 from django.conf import settings
 from .rag_service import RAGService
+from .agent_service import MedicalAgent
 
 class ChatViewSet(viewsets.ViewSet):
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.rag_service = RAGService()
+        # Agent will be initialized per request to avoid state issues
+        self.use_agent = getattr(settings, 'USE_AGENT', True)
         
     def get_patient(self, request):
         return DatabaseService.get_patient_by_user_id(request.user_id)
@@ -558,32 +561,96 @@ class ChatViewSet(viewsets.ViewSet):
         auth_token = (request.META.get("HTTP_AUTHORIZATION", "") or "").replace("Bearer ", "")
         if not auth_token:
             return Response({"error": "Authentication required"}, status=401)
-        #Call RAG (LangChain) service
-        try:
-            result = self.rag_service.query_with_context(
-                query=user_message,
-                language=patient.get("preferred_language_id", "en"),
-                cancer_type_id=cancer_type_id,
-                auth_token=auth_token,
-                session_id=session["id"],
-                chat_history=chat_history,
-            )
-        except Exception as e:
-            logger.exception("Exception calling RAG service")
-            return Response({"error": "Failed to generate response", "details": str(e)}, status=500)
 
-        # Normalize result
-        if not isinstance(result, dict):
-            logger.error(f"RAG returned non-dict: {type(result)} - {result}")
-            result = {
-                "success": False,
-                "response": "I apologize, but I encountered an error processing your request."
-            }
+        # Try agent-based system first (with RAG as fallback)
+        if self.use_agent:
+            try:
+                logger.info("Using agent-based system for response generation")
 
-        if result.get("success"):
-            reply = (result.get("answer") or result.get("response") or "").strip()
+                # Collect status updates for frontend display
+                status_updates = []
+                def status_callback(msg):
+                    status_updates.append(msg)
+
+                agent = MedicalAgent(status_callback=status_callback)
+
+                # Build clean chat history for agent (without system message)
+                agent_history = []
+                for msg in messages:
+                    if msg.role != "system":
+                        agent_history.append({"role": msg.role, "content": msg.content})
+
+                # Call agent
+                result = agent.chat(
+                    user_message=user_message,
+                    patient_id=patient["id"],
+                    user_id=request.user_id,
+                    cancer_type_id=cancer_type_id,
+                    chat_history=agent_history,
+                    language=preferred_language,
+                    auth_token=auth_token,
+                    session_id=session["id"]
+                )
+
+                if result.get("success"):
+                    reply = result.get("response", "").strip()
+                    logger.info(f"Agent succeeded after {result.get('iterations', 0)} iterations")
+                    # Add status updates to result
+                    result['status_updates'] = status_updates
+                else:
+                    # Agent failed, fall back to RAG
+                    logger.warning(f"Agent failed: {result.get('error')}, falling back to RAG")
+                    raise Exception(f"Agent failed: {result.get('error')}")
+
+            except Exception as e:
+                logger.warning(f"Agent failed, falling back to RAG: {e}")
+                # Fallback to direct RAG
+                try:
+                    result = self.rag_service.query_with_context(
+                        query=user_message,
+                        language=patient.get("preferred_language_id", "en"),
+                        cancer_type_id=cancer_type_id,
+                        auth_token=auth_token,
+                        session_id=session["id"],
+                        chat_history=chat_history,
+                    )
+
+                    if result.get("success"):
+                        reply = (result.get("answer") or result.get("response") or "").strip()
+                    else:
+                        reply = (result.get("response") or "I'm sorry—I couldn't process that right now.").strip()
+
+                except Exception as rag_error:
+                    logger.exception("Both agent and RAG failed")
+                    return Response({"error": "Failed to generate response", "details": str(rag_error)}, status=500)
         else:
-            reply = (result.get("response") or "I’m sorry—I couldn’t process that right now.").strip()
+            # Agent disabled, use RAG directly
+            try:
+                result = self.rag_service.query_with_context(
+                    query=user_message,
+                    language=patient.get("preferred_language_id", "en"),
+                    cancer_type_id=cancer_type_id,
+                    auth_token=auth_token,
+                    session_id=session["id"],
+                    chat_history=chat_history,
+                )
+
+                # Normalize result
+                if not isinstance(result, dict):
+                    logger.error(f"RAG returned non-dict: {type(result)} - {result}")
+                    result = {
+                        "success": False,
+                        "response": "I apologize, but I encountered an error processing your request."
+                    }
+
+                if result.get("success"):
+                    reply = (result.get("answer") or result.get("response") or "").strip()
+                else:
+                    reply = (result.get("response") or "I'm sorry—I couldn't process that right now.").strip()
+
+            except Exception as e:
+                logger.exception("Exception calling RAG service")
+                return Response({"error": "Failed to generate response", "details": str(e)}, status=500)
 
         # Persist assistant reply
         DatabaseService.create_chat_message(session["id"], "assistant", reply)
@@ -596,13 +663,16 @@ class ChatViewSet(viewsets.ViewSet):
             logger.warning(f"Title generation failed: {e}")
 
 
-        return Response(
-            {
-                "response": reply,
-                "session_id": session["id"],
-            },
-            status=status.HTTP_200_OK,
-        )
+        response_data = {
+            "response": reply,
+            "session_id": session["id"],
+        }
+
+        # Add status updates if available (from agent)
+        if self.use_agent and 'result' in locals() and 'status_updates' in result:
+            response_data['status_updates'] = result['status_updates']
+
+        return Response(response_data, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=["delete"])
     def delete(self, request, pk=None):
